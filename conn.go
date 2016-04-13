@@ -2,19 +2,20 @@ package smtpd
 
 import (
 	"bufio"
-	"bytes"
+	//"bytes"
 	"fmt"
 	"io"
 	"log"
 	"net"
-	//"net/textproto"
+	"net/textproto"
 	"strings"
+	"unicode"
 )
 
 // conn represents a connection to the smtp server
 type conn struct {
-	//r *textproto.Reader
-	r *bufio.Reader
+	r *textproto.Reader
+	//r *bufio.Reader
 	w *bufio.Writer
 }
 
@@ -29,16 +30,29 @@ func newConn(c net.Conn) *conn {
 		r = c
 		w = c
 	}
-	reader := bufio.NewReader(r)
+	//reader := bufio.NewReader(r)
+	reader := textproto.NewReader(bufio.NewReader(r))
 	writer := bufio.NewWriter(w)
 	return &conn{reader, writer}
 }
 
-func (h *conn) ReadLine() (string, error) {
-	line, err := h.readLineSlice()
-	return string(line), err
+// ReadLine reads a single line from c, without the final \n or \r\n.
+func (c *conn) ReadLine() (string, error) {
+	//line, err := h.readLineSlice()
+	//return string(line), err
+	return c.r.ReadLine()
 }
 
+// DotReader returns a new io.Reader. The Reader's Read method
+// rewrites the "\r\n" line endings into the simpler "\n",
+// removes leading dot escapes if present, and stops with error io.EOF
+// after consuming (and discarding) the end-of-sequence line.
+func (c *conn) DotReader() io.Reader {
+    //&dataReader{Reader: s.conn.r}
+	return c.r.DotReader()
+}
+
+/*
 // ReadCmd reads next line, trims whitespace, and splits it at first space
 func (h *conn) ReadCmd() (verb string, params string, err error) {
 	line, err := h.readLineSlice()
@@ -75,15 +89,29 @@ func (h *conn) readLineSlice() (line []byte, err error) {
 	}
 	return
 }
+*/
 
 var crlf = []byte{'\r', '\n'}
 
 // Reply writes the formatted output followed by \r\n.
-func (h *conn) Reply(format string, args ...interface{}) error {
-	fmt.Fprintf(h.w, format, args...)
-	h.w.Write(crlf)
+func (c *conn) Reply(format string, args ...interface{}) error {
+	fmt.Fprintf(c.w, format, args...)
+	c.w.Write(crlf)
 	// TODO: reset write deadline and read deadline
-	return h.w.Flush()
+	return c.w.Flush()
+}
+
+func (c *conn) ErrorReply(err error) error {
+	msg := err.Error()
+	// starts with 3-digits?
+    if strings.IndexFunc(msg, func(r rune) bool { 
+        return unicode.IsNumber(r) == false 
+    }) == 3 {
+    	fmt.Fprintf(c.w, "%s\r\n", msg)
+    } else {
+    	fmt.Fprintf(c.w, "451 Requested action aborted: %s\r\n", msg)
+    }
+	return c.w.Flush()
 }
 
 func (h *conn) MultiLineReply(status int, args ...string) error {

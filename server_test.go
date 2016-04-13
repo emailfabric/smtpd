@@ -2,6 +2,8 @@ package smtpd
 
 import (
 	"crypto/tls"
+	"fmt"
+	"io"
 	"net"
 	"net/smtp"
 	"testing"
@@ -14,11 +16,34 @@ Subject: test
 This is a test.
 `)
 
+type testHandler struct {}
+
+func (h testHandler) Connect(source string) error { return nil }
+
+func (h testHandler) Hello(hostname string) error { return nil }
+
+// Authenticate is called after AUTH
+func (h testHandler) Authenticate(identity, username, password string) error {
+    if username == "user@example.com" && password == "password" {
+        return nil
+    }
+    return fmt.Errorf("550 Unauthorized")
+}
+
+// Sender is called after MAIL FROM
+func (h testHandler) Sender(address string) error { return nil }
+
+// Recipient is called after RCPT TO
+func (h testHandler) Recipient(address string) error { return nil }
+
+// Message is called after DATA
+func (h testHandler) Message(reader io.Reader) error { return nil }
+
 func TestSendMail(t *testing.T) {
 
 	Debug = true
 
-	runServer(t, &Server{})
+	runServer(t, &Server{}, testHandler{})
 
 	err := sendMail("127.0.0.1:10025", nil, "sender@example.com", []string{"recipient@example.com"}, testMessage)
 	if err != nil {
@@ -51,20 +76,12 @@ func TestSendMailWithAuth(t *testing.T) {
     	//ClientAuth:   tls.VerifyClientCertIfGiven,
     	//ServerName:   "localhost",
     }
-	
-	authHook := func (si *SessionInfo) (ok bool, err error) {
-	    if si.Username == "user@example.com" && si.Password == "password" {
-	        ok = true
-	    }
-	    return
-	}
 
 	server := &Server{
 	    TLSConfig: tlsConfig,
-	    AuthHook: authHook,
 	}
 
-	runServer(t, server)
+	runServer(t, server, testHandler{})
 
     auth := smtp.PlainAuth("", "user@example.com", "password", "127.0.0.1")
     err = sendMail("127.0.0.1:10025", auth, "sender@example.com", []string{"recipient@example.com"}, testMessage)
@@ -73,7 +90,7 @@ func TestSendMailWithAuth(t *testing.T) {
     }    
 }
 
-func runServer(t *testing.T, server *Server) {
+func runServer(t *testing.T, server *Server, handler Handler) {
 
 	listener, err := net.Listen("tcp", "127.0.0.1:10025")
 	if err != nil {
@@ -88,7 +105,7 @@ func runServer(t *testing.T, server *Server) {
 			t.Fatalf("%s", err.Error())
 		}
 
-		err = server.ServeSMTP(conn)
+		err = server.ServeSMTP(conn, handler)
 		if err != nil {
 			t.Fatalf("%s", err.Error())
 		}
@@ -148,6 +165,6 @@ func sendMail(addr string, a smtp.Auth, from string, to []string, msg []byte) er
 		return err
 	}
 	err = c.Quit()
-	// tls: received record with version 3231 when expecting version 303
+	// => tls: received record with version 3231 when expecting version 303
 	return nil
 }
