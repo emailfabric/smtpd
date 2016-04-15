@@ -314,7 +314,7 @@ func (s *session) mail(params string) {
 	}
 	
 	addr := address(params[5:])  // could be empty for remote bounces
-	// BODY=, AUTH=, ENVID=, RET=
+	// BODY=, SIZE=, AUTH=, ENVID=, RET=
 	err := s.handler.Sender(addr)
 	if err != nil {
 	    s.conn.ErrorReply(err)

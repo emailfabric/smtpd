@@ -109,7 +109,7 @@ func (d *dotReader) WriteTo(w io.Writer) (n int64, err error) {
 		    // followed by CRLF or LF?
 			if line[1] == '\r' || line[1] == '\n' {
 				d.state = stateEOF
-        		return 0, io.EOF  // discard .CRLF
+        		return n, err  // discard .CRLF
 			}
 			// followed by other character, remove dot
 			line = line[1:]
