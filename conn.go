@@ -48,7 +48,7 @@ func (c *conn) ReadLine() (string, error) {
 // removes leading dot escapes if present, and stops with error io.EOF
 // after consuming (and discarding) the end-of-sequence line.
 func (c *conn) DotReader() io.Reader {
-    //&dataReader{Reader: s.conn.r}
+	//&dataReader{Reader: s.conn.r}
 	return c.r.DotReader()
 }
 
@@ -104,23 +104,23 @@ func (c *conn) Reply(format string, args ...interface{}) error {
 func (c *conn) ErrorReply(err error) error {
 	msg := err.Error()
 	// starts with 3-digits?
-    if strings.IndexFunc(msg, func(r rune) bool { 
-        return unicode.IsNumber(r) == false 
-    }) == 3 {
-    	fmt.Fprintf(c.w, "%s\r\n", msg)
-    } else {
-    	fmt.Fprintf(c.w, "451 Requested action aborted: %s\r\n", msg)
-    }
+	if strings.IndexFunc(msg, func(r rune) bool {
+		return unicode.IsNumber(r) == false
+	}) == 3 {
+		fmt.Fprintf(c.w, "%s\r\n", msg)
+	} else {
+		fmt.Fprintf(c.w, "451 Requested action aborted: %s\r\n", msg)
+	}
 	return c.w.Flush()
 }
 
-func (h *conn) MultiLineReply(status int, args ...string) error {
+func (c *conn) MultiLineReply(status int, args ...string) error {
 	i := 0
 	for ; i < len(args)-1; i++ {
-		fmt.Fprintf(h.w, "%d-%s\r\n", status, args[i])
+		fmt.Fprintf(c.w, "%d-%s\r\n", status, args[i])
 	}
-	fmt.Fprintf(h.w, "%d %s\r\n", status, args[i])
-	return h.w.Flush()
+	fmt.Fprintf(c.w, "%d %s\r\n", status, args[i])
+	return c.w.Flush()
 }
 
 // logReadWriter writes each read line preceded with "-> "

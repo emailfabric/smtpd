@@ -7,7 +7,7 @@ import (
 
 // textproto.Reader#DotReader() rewrites standard CRLF line endings to LF which
 // causes issues when mails are signed or forwarded
-// this replacement preserves line endings and also implements io.WriterTo which 
+// this replacement preserves line endings and also implements io.WriterTo which
 // is more efficient when io.Copy is used on the reader
 
 const (
@@ -24,8 +24,8 @@ type dotReader struct {
 }
 
 // Read chunk of message data.
-// If the line is composed of a single period, it is treated as the end of 
-// mail indicator and io.EOF is returned. If the first character is a period 
+// If the line is composed of a single period, it is treated as the end of
+// mail indicator and io.EOF is returned. If the first character is a period
 // and there are other characters on the line, the first character is deleted.
 func (d *dotReader) Read(b []byte) (n int, err error) {
 	br := d.r
@@ -44,10 +44,10 @@ func (d *dotReader) Read(b []byte) (n int, err error) {
 		case stateBeginLine:
 			if c == '.' {
 				state = stateDot
-				continue  // discard dot
+				continue // discard dot
 			}
 			if c != '\n' {
-    			state = stateData
+				state = stateData
 			}
 		case stateDot:
 			if c == '\r' {
@@ -55,17 +55,17 @@ func (d *dotReader) Read(b []byte) (n int, err error) {
 				continue
 			}
 			if c == '\n' {
-				state = stateEOF  // exit loop
+				state = stateEOF // exit loop
 				continue
 			}
 			state = stateData
 		case stateDotCR:
 			if c == '\n' {
-				state = stateEOF  // exit loop
+				state = stateEOF // exit loop
 				continue
 			}
 			// .CR not followed by LF, should not occur
-            c = '\r'
+			c = '\r'
 			br.UnreadByte()
 			state = stateData
 		case stateData:
@@ -93,23 +93,23 @@ func (d *dotReader) WriteTo(w io.Writer) (n int64, err error) {
 	for {
 		line, err := d.r.ReadSlice('\n')
 		if err != nil {
-    	    // ErrBufferFull should not occur as lines must be 1000 bytes or less
-    	    // a partial line may be returned after error (often io.EOF)
+			// ErrBufferFull should not occur as lines must be 1000 bytes or less
+			// a partial line may be returned after error (often io.EOF)
 			if line != nil {
-    			written, _ := w.Write(line)
-        		n += int64(written)
+				written, _ := w.Write(line)
+				n += int64(written)
 			}
-		    if err == io.EOF {
+			if err == io.EOF {
 				err = io.ErrUnexpectedEOF
 			}
 			return n, err
 		}
 		// line starts with dot?
 		if len(line) >= 2 && line[0] == '.' {
-		    // followed by CRLF or LF?
+			// followed by CRLF or LF?
 			if line[1] == '\r' || line[1] == '\n' {
 				d.state = stateEOF
-        		return n, err  // discard .CRLF
+				return n, err // discard .CRLF
 			}
 			// followed by other character, remove dot
 			line = line[1:]

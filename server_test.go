@@ -16,7 +16,7 @@ Subject: test
 This is a test.
 `)
 
-type testHandler struct {}
+type testHandler struct{}
 
 func (h testHandler) Connect(source string) error { return nil }
 
@@ -24,10 +24,10 @@ func (h testHandler) Hello(hostname string) error { return nil }
 
 // Authenticate is called after AUTH
 func (h testHandler) Authenticate(identity, username, password string) error {
-    if username == "user@example.com" && password == "password" {
-        return nil
-    }
-    return fmt.Errorf("550 Unauthorized")
+	if username == "user@example.com" && password == "password" {
+		return nil
+	}
+	return fmt.Errorf("550 Unauthorized")
 }
 
 // Sender is called after MAIL FROM
@@ -55,39 +55,39 @@ func TestSendMailWithAuth(t *testing.T) {
 
 	Debug = true
 
-    // openssl genrsa 2048 > test/key.pem
-    // openssl req -x509 -new -key key.pem > test/cert.pem
-    //
-    // Country Name (2 letter code) [AU]:.
-    // State or Province Name (full name) [Some-State]:.
-    // Locality Name (eg, city) []:
-    // Organization Name (eg, company) [Internet Widgits Pty Ltd]:.
-    // Organizational Unit Name (eg, section) []:
-    // Common Name (e.g. server FQDN or YOUR name) []:127.0.0.1
-    // Email Address []:
-    
+	// openssl genrsa 2048 > test/key.pem
+	// openssl req -x509 -new -key key.pem > test/cert.pem
+	//
+	// Country Name (2 letter code) [AU]:.
+	// State or Province Name (full name) [Some-State]:.
+	// Locality Name (eg, city) []:
+	// Organization Name (eg, company) [Internet Widgits Pty Ltd]:.
+	// Organizational Unit Name (eg, section) []:
+	// Common Name (e.g. server FQDN or YOUR name) []:127.0.0.1
+	// Email Address []:
+
 	cert, err := tls.LoadX509KeyPair("test/cert.pem", "test/key.pem")
-    if err != nil {
+	if err != nil {
 		t.Fatalf("%s", err.Error())
-    }    
-	
+	}
+
 	tlsConfig := &tls.Config{
-        Certificates: []tls.Certificate{cert},
-    	//ClientAuth:   tls.VerifyClientCertIfGiven,
-    	//ServerName:   "localhost",
-    }
+		Certificates: []tls.Certificate{cert},
+		//ClientAuth:   tls.VerifyClientCertIfGiven,
+		//ServerName:   "localhost",
+	}
 
 	server := &Server{
-	    TLSConfig: tlsConfig,
+		TLSConfig: tlsConfig,
 	}
 
 	runServer(t, server, testHandler{})
 
-    auth := smtp.PlainAuth("", "user@example.com", "password", "127.0.0.1")
-    err = sendMail("127.0.0.1:10025", auth, "sender@example.com", []string{"recipient@example.com"}, testMessage)
-    if err != nil {
+	auth := smtp.PlainAuth("", "user@example.com", "password", "127.0.0.1")
+	err = sendMail("127.0.0.1:10025", auth, "sender@example.com", []string{"recipient@example.com"}, testMessage)
+	if err != nil {
 		t.Fatalf("%s", err.Error())
-    }    
+	}
 }
 
 func runServer(t *testing.T, server *Server, handler Handler) {
@@ -98,8 +98,8 @@ func runServer(t *testing.T, server *Server, handler Handler) {
 	}
 
 	go func() {
-	    defer listener.Close()
-	    
+		defer listener.Close()
+
 		conn, err := listener.Accept()
 		if err != nil {
 			t.Fatalf("%s", err.Error())
@@ -120,25 +120,25 @@ func sendMail(addr string, a smtp.Auth, from string, to []string, msg []byte) er
 		return err
 	}
 	defer c.Close()
-	
+
 	err = c.Hello("localhost")
-    if err != nil {
+	if err != nil {
 		return err
 	}
-    
+
 	if ok, _ := c.Extension("STARTTLS"); ok {
 		config := &tls.Config{
-		    InsecureSkipVerify: true,
+			InsecureSkipVerify: true,
 		}
 		if err = c.StartTLS(config); err != nil {
 			return err
 		}
 		//if state, ok := c.TLSConnectionState(); ok {
-        //	log.Printf("client %t %x %x", state.HandshakeComplete, state.Version, state.CipherSuite)
+		//	log.Printf("client %t %x %x", state.HandshakeComplete, state.Version, state.CipherSuite)
 		//}
 	}
 	if a != nil {
-    	if ok, _ := c.Extension("AUTH"); ok {
+		if ok, _ := c.Extension("AUTH"); ok {
 			if err = c.Auth(a); err != nil {
 				return err
 			}
@@ -164,7 +164,7 @@ func sendMail(addr string, a smtp.Auth, from string, to []string, msg []byte) er
 	if err != nil {
 		return err
 	}
-	err = c.Quit()
+	c.Quit()
 	// => tls: received record with version 3231 when expecting version 303
 	return nil
 }
