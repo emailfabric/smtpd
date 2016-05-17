@@ -16,6 +16,6 @@ Pass each connection together with a handler instance to ServeSMTP().
 
 For testing authentication a TLS connection is used. Create a self-signed certificate before running the tests:
 
-	mkdir test
-	openssl genrsa 2048 > test/key.pem
-    openssl req -x509 -new -key key.pem > test/cert.pem
+	mkdir testdata
+	openssl genrsa 2048 > testdata/key.pem
+    openssl req -x509 -new -key key.pem > testdata/cert.pem

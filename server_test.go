@@ -66,7 +66,7 @@ func TestSendMailWithAuth(t *testing.T) {
 	// Common Name (e.g. server FQDN or YOUR name) []:127.0.0.1
 	// Email Address []:
 
-	cert, err := tls.LoadX509KeyPair("test/cert.pem", "test/key.pem")
+	cert, err := tls.LoadX509KeyPair("testdata/cert.pem", "testdata/key.pem")
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
