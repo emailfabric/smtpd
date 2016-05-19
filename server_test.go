@@ -23,11 +23,11 @@ func (h testHandler) Connect(source string) error { return nil }
 func (h testHandler) Hello(hostname string) error { return nil }
 
 // Authenticate is called after AUTH
-func (h testHandler) Authenticate(identity, username, password string) error {
-	if username == "user@example.com" && password == "password" {
-		return nil
+func (h testHandler) AuthUser(identity, username string) (password string, err error) {
+	if username == "user@example.com" {
+		return "password", nil
 	}
-	return fmt.Errorf("550 Unauthorized")
+	return "", fmt.Errorf("550 Unauthorized")
 }
 
 // Sender is called after MAIL FROM
@@ -51,7 +51,7 @@ func TestSendMail(t *testing.T) {
 	}
 }
 
-func TestSendMailWithAuth(t *testing.T) {
+func TestSendMailWithPlainAuth(t *testing.T) {
 
 	Debug = true
 
@@ -85,6 +85,21 @@ func TestSendMailWithAuth(t *testing.T) {
 
 	auth := smtp.PlainAuth("", "user@example.com", "password", "127.0.0.1")
 	err = sendMail("127.0.0.1:10025", auth, "sender@example.com", []string{"recipient@example.com"}, testMessage)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+}
+
+func TestSendMailWithCramMD5Auth(t *testing.T) {
+
+	Debug = true
+
+	server := &Server{}
+
+	runServer(t, server, testHandler{})
+
+	auth := smtp.CRAMMD5Auth("user@example.com", "password")
+	err := sendMail("127.0.0.1:10025", auth, "sender@example.com", []string{"recipient@example.com"}, testMessage)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}

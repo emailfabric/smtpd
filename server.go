@@ -5,10 +5,14 @@ package smtpd
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/md5"
 	"crypto/tls"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"os"
 	"regexp"
@@ -58,7 +62,8 @@ type Handler interface {
 	Hello(hostname string) error
 
 	// Authenticate is called after AUTH
-	Authenticate(identity, username, password string) error
+	//Authenticate(identity, username, password_or_response string) error
+	AuthUser(identity, username string) (password string, err error)
 
 	// Sender is called after MAIL FROM
 	Sender(address string) error
@@ -124,16 +129,9 @@ func (s *Server) ServeSMTP(conn net.Conn, handler Handler) error {
 		// trim space by adjusting slice
 		line = strings.TrimSpace(line)
 		// split at first space
-		var verb, params string
-		i := strings.IndexByte(line, ' ')
-		if i != -1 {
-			verb = strings.ToUpper(line[0:i])
-			params = strings.TrimSpace(line[i+1:])
-		} else {
-			verb = strings.ToUpper(line)
-		}
+		verb, params := split1(line)
 
-		switch verb {
+		switch strings.ToUpper(verb) {
 		case "HELO":
 			sess.helo(params)
 		case "EHLO":
@@ -191,6 +189,8 @@ func (s *session) ehlo(params string) {
 	}
 	if s.tls {
 		lines = append(lines, "AUTH PLAIN LOGIN")
+	} else {
+		lines = append(lines, "AUTH CRAM-MD5")
 	}
 	if s.server.Pipelining {
 		lines = append(lines, "PIPELINING")
@@ -227,77 +227,153 @@ func (s *session) starttls(conn net.Conn) {
 }
 
 func (s *session) auth(params string) {
-	if s.tls == false {
-		s.conn.Reply("502 AUTH not allowed, use STARTTLS first")
-		return
-	}
-	fields := strings.Fields(params)
-	mechanism := strings.ToUpper(fields[0])
-	var identity, username, password string
-	switch mechanism {
+	mech, cred := split1(params)
+	switch strings.ToUpper(mech) {
 	case "PLAIN":
-		var auth string
-		if len(fields) < 2 {
-			s.conn.Reply("334 Give me your credentials")
-			line, err := s.conn.ReadLine()
-			if err != nil {
-				return // no sense to reply, disconnect?
-			}
-			auth = line
-		} else {
-			auth = fields[1]
-		}
-		data, err := base64.StdEncoding.DecodeString(auth)
-		if err != nil {
-			s.conn.Reply("502 Couldn't decode your credentials")
-			return
-		}
-		// The client sends the authorization identity (identity to login as),
-		// followed by a US-ASCII NULL character, followed by the authentication
-		// identity (identity whose password will be used), followed by a US-ASCII
-		// NULL character, followed by the clear-text password. The client may
-		// leave the authorization identity empty to indicate that it is the same
-		// as the authentication identity.
-		parts := bytes.Split(data, []byte{0})
-		if len(parts) != 3 {
-			s.conn.Reply("502 Couldn't decode your credentials")
-			return
-		}
-		identity = string(parts[0])
-		username = string(parts[1])
-		password = string(parts[2])
+    	if s.tls == false {
+    		s.conn.Reply("502 AUTH PLAIN not allowed, use STARTTLS first")
+    		break
+    	}
+	    s.authPlain(cred)
 	case "LOGIN":
-		s.conn.Reply("334 VXNlcm5hbWU6") // "Username:" in Base64
-		line, err := s.conn.ReadLine()
-		if err != nil {
-			return // no sense to reply?
-		}
-		data, err := base64.StdEncoding.DecodeString(line)
-		if err != nil {
-			s.conn.Reply("502 Couldn't decode your credentials")
-			return
-		}
-		username = string(data)
-		s.conn.Reply("334 UGFzc3dvcmQ6") // "Password:" in Base64
-		line, err = s.conn.ReadLine()
-		if err != nil {
-			return // no sense to reply?
-		}
-		data, err = base64.StdEncoding.DecodeString(line)
-		if err != nil {
-			s.conn.Reply("502 Couldn't decode your credentials")
-			return
-		}
-		password = string(data)
+    	if s.tls == false {
+    		s.conn.Reply("502 AUTH LOGIN not allowed, use STARTTLS first")
+    		break
+    	}
+    	s.authLogin()
+	case "CRAM-MD5":
+	    s.authCramMD5()
 	default:
 		s.conn.Reply("502 Unknown authentication mechanism")
 	}
-	err := s.handler.Authenticate(identity, username, password)
+}
+
+func (s *session) authPlain(cred string) {
+	// ask for credentials if not already provided
+	var data []byte
+	var err error
+	if cred == "" {
+		s.conn.Reply("334 Give me your credentials")
+		data, err = s.readAuthResp()
+    	if err != nil {
+    		s.conn.ErrorReply(err)
+    		return
+    	}
+	} else {
+    	data, err = base64.StdEncoding.DecodeString(cred)
+    	if err != nil {
+    		s.conn.Reply("502 Couldn't decode your credentials")
+    		return
+    	}
+	}
+	// The client sends the authorization identity (identity to login as),
+	// followed by a US-ASCII NULL character, followed by the authentication
+	// identity (identity whose password will be used), followed by a US-ASCII
+	// NULL character, followed by the clear-text password. The client may
+	// leave the authorization identity empty to indicate that it is the same
+	// as the authentication identity.
+	parts := bytes.Split(data, []byte{0})
+	if len(parts) != 3 {
+		s.conn.Reply("502 Couldn't decode your credentials")
+		return
+	}
+	identity := string(parts[0])
+	username := string(parts[1])
+	password := string(parts[2])
+	// ? check if username or password is empty
+	
+	// check credentials
+	expected, err := s.handler.AuthUser(identity, username)
 	if err != nil {
 		s.conn.ErrorReply(err)
 		return
 	}
+	if password != expected {
+    	s.conn.Reply("502 invalid credentials")
+    	return
+	}
 	s.conn.Reply("235 OK, you are now authenticated")
+}
+
+func (s *session) authLogin() {
+    // ask for username
+    s.conn.Reply("334 VXNlcm5hbWU6") // "Username:" in Base64
+	data, err := s.readAuthResp()
+	if err != nil {
+		s.conn.ErrorReply(err)
+		return
+	}
+	username := string(data)
+	
+	// ask for password
+	s.conn.Reply("334 UGFzc3dvcmQ6") // "Password:" in Base64
+	data, err = s.readAuthResp()
+	if err != nil {
+		s.conn.ErrorReply(err)
+		return
+	}
+	password := string(data)
+
+    // check credentials
+	expected, err := s.handler.AuthUser("", username)
+	if err != nil {
+		s.conn.ErrorReply(err)
+		return
+	}
+	if password != expected {
+    	s.conn.Reply("502 invalid credentials")
+    	return
+	}
+	s.conn.Reply("235 OK, you are now authenticated")
+}
+
+func (s *session) authCramMD5() {
+    
+    // send challenge
+    challenge := []byte(fmt.Sprintf("<%d-%d@%s>", rand.Int63(), time.Now().Unix(), s.server.Hostname))
+    s.conn.Reply("334 " + base64.StdEncoding.EncodeToString(challenge))
+    
+    // get response, should be challenge hashed with password
+	data, err := s.readAuthResp()
+	if err != nil {
+		s.conn.ErrorReply(err)
+		return
+	}
+	username, hashed := split1(string(data))
+    
+    // lookup expected password
+    expected, err := s.handler.AuthUser("", username)
+	if err != nil {
+		s.conn.ErrorReply(err)
+		return
+	}
+	
+    // calculate expected response and compare
+    d := hmac.New(md5.New, []byte(expected))
+	d.Write(challenge)
+	h := fmt.Sprintf("%x", d.Sum(make([]byte, 0, d.Size())))
+	if hashed != h {
+    	s.conn.Reply("502 invalid credentials")
+    	return
+	}
+    s.conn.Reply("235 OK, you are now authenticated")
+}
+
+func (s *session) readAuthResp() (data []byte, err error) {
+    line, err := s.conn.ReadLine()
+	if err != nil {
+		return
+	}
+	if line == "*" {
+	    err = fmt.Errorf("501 Authentication cancelled")
+		return
+	} 
+	data, err = base64.StdEncoding.DecodeString(line)
+	if err != nil {
+	    err = fmt.Errorf("501 Invalid base64 encoding: %v", err)
+		return
+	}
+    return
 }
 
 func (s *session) mail(params string) {
@@ -370,6 +446,18 @@ func (s *session) rset() {
 	s.hasSender = false
 	s.hasRcpt = false
 	s.conn.Reply("250 OK")
+}
+
+// split at first space
+func split1(str string) (elem, rest string) {
+	i := strings.IndexByte(str, ' ')
+	if i != -1 {
+		elem = str[0:i]
+		rest = str[i+1:]
+	} else {
+		elem = str
+	}
+	return
 }
 
 var reAddress = regexp.MustCompile(` ?<?([^>\s]+)`)
