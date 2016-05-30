@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"math/rand"
 	"net"
 	"os"
@@ -96,11 +97,19 @@ type session struct {
 // The application should close the connection after ServeSMTP returns.
 func (s *Server) ServeSMTP(conn net.Conn, handler Handler) error {
 
+	if Debug {
+	    log.Printf("Connection from %s to %s", conn.RemoteAddr(), conn.LocalAddr())
+    }
 	sess := &session{
 		server: s,
 		conn:   newConn(conn),
 		//state: state_init,
 		handler: handler,
+	}
+	
+	// connection already encrypted (SMTPS)?
+	if _, ok := conn.(*tls.Conn); ok {
+	    sess.tls = true
 	}
 
 	/*
@@ -212,15 +221,17 @@ func (s *session) starttls(conn net.Conn) {
 	}
 	s.conn.Reply("220 2.0.0 ready to start TLS")
 	tlsConn := tls.Server(conn, s.server.TLSConfig)
-	/*
-		err := tlsConn.Handshake()
-		if err != nil {
-			s.conn.Reply("550 %s", err.Error())
-			return
-		}
-		state := tlsConn.ConnectionState()
-		fmt.Printf("server %t %x %x\n", state.HandshakeComplete, state.Version, state.CipherSuite)
-	*/
+
+	err := tlsConn.Handshake()
+	if err != nil {
+		s.conn.Reply("550 %s", err.Error())  // EOF when aborted?
+		return
+	}
+	if Debug {
+    	state := tlsConn.ConnectionState()
+    	log.Printf("tls %t, version %x, cipher %x\n", state.HandshakeComplete, state.Version, state.CipherSuite)
+	}
+
 	s.conn = newConn(tlsConn)
 
 	s.tls = true
@@ -288,7 +299,7 @@ func (s *session) authPlain(cred string) {
 		s.conn.ErrorReply(err)
 		return
 	}
-	if password != expected {
+	if expected == "" || password != expected {
     	s.conn.Reply("502 invalid credentials")
     	return
 	}
@@ -320,7 +331,7 @@ func (s *session) authLogin() {
 		s.conn.ErrorReply(err)
 		return
 	}
-	if password != expected {
+	if expected == "" || password != expected {
     	s.conn.Reply("502 invalid credentials")
     	return
 	}
@@ -378,6 +389,7 @@ func (s *session) readAuthResp() (data []byte, err error) {
 
 func (s *session) mail(params string) {
 
+    // valid sender address already provided?
 	if s.hasSender {
 		s.conn.Reply("503 Sender already given")
 		return

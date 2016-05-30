@@ -23,7 +23,6 @@ func newConn(c net.Conn) *conn {
 	var r io.Reader
 	var w io.Writer
 	if Debug {
-		log.Printf("Connection from %s to %s", c.RemoteAddr(), c.LocalAddr())
 		r = io.TeeReader(c, new(logReadWriter))
 		w = io.MultiWriter(c, new(logWriter))
 	} else {
